@@ -13,9 +13,10 @@ setup(name='libev',
       packages=['libev'],
       cmdclass = {'build_ext': build_ext},
       ext_package='libev',
-      ext_modules = [Extension('libev',
-                               ["libev/capi.pxd", "libev/loop.pyx"],
+      ext_modules = [Extension('_ev',
+                               ["libev/capi.pxd", "libev/global.pyx"],
                                libraries=["ev"],
                                define_macros=[('EV_STANDALONE', '1'),
-                                              ('EV_MULTIPLICITY', '1')])]
+                                              ('EV_MULTIPLICITY', '1'),
+                                              ('ev_lp', 'struct ev_loop')])]
 )
