@@ -1,8 +1,17 @@
+cdef extern from "stdlib.h":
+     void free(void *ptr)
+     void *malloc(size_t size)
+     void *realloc(void *ptr, size_t size)
+
 cdef extern from "ev.h":
     cdef struct ev_watcher:
-        pass
+        void *data
+
     cdef struct ev_io:
-        pass
+        void *data
+
+    cdef struct ev_timer:
+        void *data
 
     # If we use struct ev_loop here, we get a big fat name collision
     # with the ev_loop function.
@@ -10,7 +19,7 @@ cdef extern from "ev.h":
         pass
 
     ctypedef double ev_tstamp
-    ctypedef void CB_TYPE(ev_watcher*, int)
+    ctypedef void CB_TYPE(ev_lp*, ev_watcher*, int)
 
     unsigned int EVFLAG_AUTO
     unsigned int EVFLAG_NOENV
@@ -26,6 +35,10 @@ cdef extern from "ev.h":
     unsigned int EVBACKEND_ALL
     unsigned int EVUNLOOP_ONE
     unsigned int EVUNLOOP_ALL
+    unsigned int EVLOOP_NONBLOCK
+    unsigned int EVLOOP_ONESHOT
+    unsigned int EV_READ
+    unsigned int EV_WRITE
 
     # Global functions
     ev_tstamp ev_time()
@@ -33,6 +46,8 @@ cdef extern from "ev.h":
     int ev_version_major()
     int ev_version_minor()
     unsigned int ev_supported_backends()
+    unsigned int ev_recommended_backends()
+    unsigned int ev_embeddable_backends()
 
     ev_lp* ev_loop_new(unsigned int)
     void ev_loop_destroy(ev_lp*)
@@ -67,12 +82,20 @@ cdef extern from "ev.h":
     void ev_loop_verify(ev_lp*)
 
     # Generic watcher stuff
-    void ev_init(ev_watcher*, void*)
+    void ev_init(ev_watcher*, CB_TYPE*)
 
     # ev_io stuff
-    ev_io_set(ev_io*, ...)
-    ev_io_start(ev_lp*, ev_io*)
-    ev_io_stop(ev_lp*, ev_io*)
+    void ev_io_set(ev_io*, int, int)
+    void ev_io_start(ev_lp*, ev_io*)
+    void ev_io_stop(ev_lp*, ev_io*)
+
+    # ev_timer stuff
+    void ev_timer_set(ev_timer*, ev_tstamp, ev_tstamp)
+    void ev_timer_start(ev_lp*, ev_timer*)
+    void ev_timer_stop(ev_lp*, ev_timer*)
+    void ev_timer_again(ev_lp*, ev_timer*)
+    ev_tstamp ev_timer_remaining(ev_lp*, ev_timer*)
+
 
     bint ev_is_active(ev_watcher*)
     bint ev_is_pending(ev_watcher*)

@@ -1,14 +1,15 @@
 cimport libev.capi as capi
 cimport python_exc
+import math
+import sys
 
-@property
 def time():
     return capi.ev_time()
 
 def sleep(capi.ev_tstamp t):
     capi.ev_sleep(t)
 
-def version_major():    
+def version_major():
     return capi.ev_version_major()
 
 def version_minor():
@@ -18,8 +19,42 @@ def version():
     return (capi.ev_version_major(),
             capi.ev_version_minor())
 
-cdef class Loop:
+def supported_backends():
+    return _backend_mask_to_set(capi.ev_supported_backends())
+
+def recommended_backends():
+    return _backend_mask_to_set(capi.ev_recommended_backends())
+
+def embeddable_backends():
+    return _backend_mask_to_set(capi.ev_embeddable_backends())
+
+_bid_to_name = {
+    capi.EVBACKEND_SELECT: 'select',
+    # POLL is somehow broken
+    #capi.EVBACKEND_POLL: 'poll',
+    capi.EVBACKEND_EPOLL: 'epoll',
+    capi.EVBACKEND_KQUEUE: 'kqueue',
+    capi.EVBACKEND_DEVPOLL: 'devpoll',
+    capi.EVBACKEND_PORT: 'port',
+}
+
+cdef _backend_mask_to_set(unsigned int backends):
+    res = []
+
+    for exp in xrange(0, int(math.log(backends, 2)+1)):
+        idx = 2**exp
+        name = _bid_to_name.get(idx, idx)
+        res.append(name)
+
+    return frozenset(res)
+
+
+cdef class Loop(object):
     cdef capi.ev_lp* _c_loop
+    cdef object _pending_exc
+
+    def __init__(self, *args, **kw):
+        self._pending_exc = []
 
     def __cinit__(self, unsigned int flags=capi.EVFLAG_AUTO):
         self._c_loop = capi.ev_loop_new(flags)
@@ -47,7 +82,8 @@ cdef class Loop:
 
     @property
     def backend(self):
-        return capi.ev_backend(self._c_loop)
+        back = capi.ev_backend(self._c_loop)
+        return _bid_to_name.get(back, back)
 
     @property
     def now(self):
@@ -62,11 +98,28 @@ cdef class Loop:
     def resume(self):
         capi.ev_suspend(self._c_loop)
 
-    def loop(self, int flags=0):
-        capi.ev_loop(self._c_loop, flags)
+    def loop(self, bool once=False, bool block=True):
+        cdef int flags = capi.EVLOOP_ONESHOT
 
-    def unloop(self, bool all):
+        if not block:
+            flags |= capi.EVLOOP_NONBLOCK
+
+        while True:
+            if self._pending_exc:
+                exc_info = self._pending_exc.pop()
+                raise exc_info[0], exc_info[1], exc_info[2]
+
+            capi.ev_loop(self._c_loop, flags)
+
+            if once:
+                break
+
+    def unloop(self, bool all=True):
         capi.ev_unloop(self._c_loop, capi.EVUNLOOP_ALL if all else capi.EVUNLOOP_ONE)
+
+    def _exc(self, exc_info):
+        self._pending_exc.append(exc_info)
+        self.unloop(all=False)
 
     def ref(self):
         capi.ev_ref(self._c_loop)
@@ -95,3 +148,99 @@ cdef class Loop:
 
     def verify(self):
         capi.ev_loop_verify(self._c_loop)
+
+cdef void _callback(capi.ev_lp* lp, capi.ev_watcher* cwatcher, int revents):
+    watcher = <Watcher>cwatcher.data
+    loop = watcher._loop
+    #assert <capi.ev_lp*>(watcher._loop._ptr()) == lp
+    try:
+        watcher._callback(loop, watcher, revents)
+    except:
+        loop._exc(sys.exc_info())
+
+cdef class Watcher(object):
+    cdef public Loop _loop
+    cdef public object _callback
+    cdef capi.ev_watcher* _watcher
+
+    def __cinit__(self, *args, **kw):
+        self._watcher = <capi.ev_watcher*>capi.malloc(self._alloc())
+        if self._watcher is NULL:
+            python_exc.PyErr_NoMemory()
+        self._watcher.data = <void*>self
+
+    def __dealloc__(self):
+        if self._watcher is not NULL:
+            self.stop()
+            capi.free(self._watcher)
+            self._watcher = NULL
+
+    def __init__(self, cb, *args, **kw):
+        self._loop = None
+        capi.ev_init(self._watcher, _callback)
+        self._callback = cb
+        self._set(*args, **kw)
+
+    cpdef start(self, loop):
+        if self._loop is not None and loop is not self._loop:
+            raise ValueError('Watchers can only be used with one loop at a time')
+
+        self._loop = loop
+        self._start(loop)
+
+    cpdef stop(self):
+        self._stop()
+        self._loop = None
+
+    def set(self, *args, **kw):
+        cdef bool was_active = self.active
+        cdef Loop loop = self._loop
+
+        if was_active:
+            self.stop()
+
+        self._set(*args, **kw)
+
+        if was_active:
+            self.start(loop)
+
+    property active:
+        def __get__(self):
+            return capi.ev_is_active(self._watcher)
+
+cdef class Timer(Watcher):
+    def _alloc(self):
+        return sizeof(capi.ev_timer)
+
+    def _set(self, capi.ev_tstamp after, capi.ev_tstamp repeat):
+        capi.ev_timer_set(<capi.ev_timer*>self._watcher, after, repeat)
+
+    def _start(self, Loop loop):
+        capi.ev_timer_start(loop._c_loop, <capi.ev_timer*>self._watcher)
+
+    def _stop(self):
+        capi.ev_timer_stop(self._loop._c_loop, <capi.ev_timer*>self._watcher)
+
+cdef class IO(Watcher):
+    def _alloc(self):
+        return sizeof(capi.ev_io)
+
+    def _set(self, int fd, read=False, write=False):
+        cdef int flags = 0
+
+        if not read and not write:
+            raise ValueError('IO watcher must watch for at least one event type')
+
+        if read:
+            flags |= capi.EV_READ
+
+        if write:
+            flags |= capi.EV_WRITE
+
+        capi.ev_io_set(<capi.ev_io*>self._watcher, fd, flags)
+
+    def _start(self, Loop loop):
+        capi.ev_io_start(loop._c_loop, <capi.ev_io*>self._watcher)
+
+    def _stop(self):
+        capi.ev_io_stop(self._loop._c_loop, <capi.ev_io*>self._watcher)
