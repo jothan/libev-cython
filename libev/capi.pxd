@@ -9,6 +9,8 @@ cdef extern from "ev.h":
 
     cdef struct ev_io:
         void *data
+        int fd
+        int events
 
     cdef struct ev_timer:
         void *data

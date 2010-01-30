@@ -3,6 +3,10 @@ cimport python_exc
 import math
 import sys
 
+__all__ = ['time', 'sleep', 'version_major', 'version_minor', 'version',
+           'supported_backends', 'embeddable_backends',
+           'Loop', 'IO', 'Timer']
+
 def time():
     return capi.ev_time()
 
@@ -68,26 +72,26 @@ cdef class Loop(object):
     def fork(self):
         capi.ev_loop_fork(self._c_loop)
 
-    @property
-    def is_default(self):
-        return capi.ev_is_default_loop(self._c_loop)
+    property is_default:
+        def __get__(self):
+            return capi.ev_is_default_loop(self._c_loop)
 
-    @property
-    def count(self):
-        return capi.ev_loop_count(self._c_loop)
+    property count:
+        def __get__(self):
+            return capi.ev_loop_count(self._c_loop)
 
-    @property
-    def depth(self):
-        return capi.ev_loop_depth(self._c_loop)
+    property depth:
+        def __get__(self):
+            return capi.ev_loop_depth(self._c_loop)
 
-    @property
-    def backend(self):
-        back = capi.ev_backend(self._c_loop)
-        return _bid_to_name.get(back, back)
+    property backend:
+        def __get__(self):
+            back = capi.ev_backend(self._c_loop)
+            return _bid_to_name.get(back, back)
 
-    @property
-    def now(self):
-        return capi.ev_now(self._c_loop)
+    property now:
+        def __get__(self):
+            return capi.ev_now(self._c_loop)
 
     def now_update(self):
         capi.ev_now_update(self._c_loop)
@@ -163,7 +167,7 @@ cdef class Watcher(object):
     cdef public object _callback
     cdef capi.ev_watcher* _watcher
 
-    def __cinit__(self, *args, **kw):
+    def __cinit__(Watcher self, *args, **kw):
         self._watcher = <capi.ev_watcher*>capi.malloc(self._alloc())
         if self._watcher is NULL:
             python_exc.PyErr_NoMemory()
@@ -212,24 +216,24 @@ cdef class Timer(Watcher):
     def _alloc(self):
         return sizeof(capi.ev_timer)
 
-    def _set(self, capi.ev_tstamp after, capi.ev_tstamp repeat):
+    cpdef _set(self, capi.ev_tstamp after, capi.ev_tstamp repeat):
         capi.ev_timer_set(<capi.ev_timer*>self._watcher, after, repeat)
 
-    def _start(self, Loop loop):
+    cpdef _start(self, Loop loop):
         capi.ev_timer_start(loop._c_loop, <capi.ev_timer*>self._watcher)
 
-    def _stop(self):
+    cpdef _stop(self):
         capi.ev_timer_stop(self._loop._c_loop, <capi.ev_timer*>self._watcher)
 
 cdef class IO(Watcher):
     def _alloc(self):
         return sizeof(capi.ev_io)
 
-    def _set(self, int fd, read=False, write=False):
+    cpdef _set(self, int fd, read=False, write=False):
         cdef int flags = 0
 
-        if not read and not write:
-            raise ValueError('IO watcher must watch for at least one event type')
+        if not (read or write):
+            raise ValueError('IO watcher must watch for read and/or write')
 
         if read:
             flags |= capi.EV_READ
@@ -239,8 +243,16 @@ cdef class IO(Watcher):
 
         capi.ev_io_set(<capi.ev_io*>self._watcher, fd, flags)
 
-    def _start(self, Loop loop):
+    cpdef _start(self, Loop loop):
         capi.ev_io_start(loop._c_loop, <capi.ev_io*>self._watcher)
 
-    def _stop(self):
+    cpdef _stop(self):
         capi.ev_io_stop(self._loop._c_loop, <capi.ev_io*>self._watcher)
+
+    property fd:
+        def __get__(self):
+            return (<capi.ev_io*>self._watcher).fd
+
+    property events:
+        def __get__(self):
+            return (<capi.ev_io*>self._watcher).events
