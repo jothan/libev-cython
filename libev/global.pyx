@@ -118,21 +118,20 @@ cdef class Loop(object):
     def resume(self):
         capi.ev_suspend(self._c_loop)
 
-    def loop(self, bool once=False, bool block=True):
-        cdef int flags = capi.EVLOOP_ONESHOT
+    def loop(self, bool block=True, bool oneshot=False):
+        cdef int flags = 0
+
+        if oneshot:
+            flags |= capi.EVLOOP_ONESHOT
 
         if not block:
             flags |= capi.EVLOOP_NONBLOCK
 
-        while True:
-            if self._pending_exc:
-                exc_info = self._pending_exc.pop()
-                raise exc_info[0], exc_info[1], exc_info[2]
+        capi.ev_loop(self._c_loop, flags)
 
-            capi.ev_loop(self._c_loop, flags)
-
-            if once:
-                break
+        if self._pending_exc:
+            exc_info = self._pending_exc.pop()
+            raise exc_info[0], exc_info[1], exc_info[2]
 
     def unloop(self, bool all=True):
         capi.ev_unloop(self._c_loop, capi.EVUNLOOP_ALL if all else capi.EVUNLOOP_ONE)
