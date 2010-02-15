@@ -21,7 +21,7 @@ import sys
 
 __all__ = ['time', 'sleep', 'version_major', 'version_minor', 'version',
            'supported_backends', 'embeddable_backends',
-           'Loop', 'IO', 'Timer']
+           'Loop', 'IO', 'Timer', 'Signal']
 
 def time():
     return capi.ev_time()
@@ -272,3 +272,20 @@ cdef class IO(Watcher):
     property events:
         def __get__(self):
             return (<capi.ev_io*>self._watcher).events
+
+cdef class Signal(Watcher):
+    def _alloc(self):
+        return sizeof(capi.ev_signal)
+
+    cpdef _set(self, int signum):
+        capi.ev_signal_set(<capi.ev_signal*>self._watcher, signum)
+
+    cpdef _start(self, Loop loop):
+        capi.ev_signal_start(loop._c_loop, <capi.ev_signal*>self._watcher)
+
+    cpdef _stop(self):
+        capi.ev_signal_stop(self._loop._c_loop, <capi.ev_signal*>self._watcher)
+
+    property signum:
+        def __get__(self):
+            return (<capi.ev_signal*>self._watcher).signum

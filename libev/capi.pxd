@@ -31,6 +31,10 @@ cdef extern from "ev.h":
     cdef struct ev_timer:
         void *data
 
+    cdef struct ev_signal:
+        void *data
+        int signum
+
     # If we use struct ev_loop here, we get a big fat name collision
     # with the ev_loop function.
     ctypedef struct ev_lp:
@@ -114,6 +118,10 @@ cdef extern from "ev.h":
     void ev_timer_again(ev_lp*, ev_timer*)
     ev_tstamp ev_timer_remaining(ev_lp*, ev_timer*)
 
+    # ev_signal stuff
+    void ev_signal_set(ev_signal*, int)
+    void ev_signal_start(ev_lp*, ev_signal*)
+    void ev_signal_stop(ev_lp*, ev_signal*)
 
     bint ev_is_active(ev_watcher*)
     bint ev_is_pending(ev_watcher*)
